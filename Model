@@ -1,0 +1,172 @@
+import numpy as np
+import math
+import random
+import pandas as pd
+import matplotlib.pyplot as plt
+from keras.datasets import mnist
+global batchsize,epoch
+batchsize=512
+epoch=100
+def ReLU(x):
+    return np.maximum(0, x)
+def lossfun(y,y_pred,w1,w2,b1,b2,reg):
+    return np.square(y_pred-y).sum()+0.5*reg*(np.square(w1).sum()+np.square(w2).sum()+np.square(b1).sum()+np.square(b2).sum())#L2 regularization
+def lossgrad(y,y_pred,w1,w2,b1,b2,reg):
+    return 2*(y_pred-y),reg*w1,reg*w2,reg*b1,reg*b2
+def ReLUgrad(x):
+    return np.where(x > 0, 1.0, 0.0)
+def label(y_pred):
+    label=np.zeros(y_pred.shape[0])
+    for i in range(y_pred.shape[0]):
+        label[i]=np.argmax(y_pred[i])
+    return label
+
+
+def training(x,Y,H,reg,lr,lossfun,ac,loss):
+    #size of sample
+    idx = np.random.choice(len(x), size=batchsize, replace=False)
+    data_batch = x[idx]
+    y = Y[idx]
+    Din = data_batch.shape[1]
+    N=data_batch.shape[0]
+    Dout = 10
+    #initialize the weight
+    w1=1e-2*np.random.randn(Din,H)
+    w2=1e-2*np.random.randn(H,Dout)
+    b1=1e-2*np.random.randn(N,H)
+    b2=1e-2*np.random.randn(N,Dout)
+    #w01=w1.copy()
+    dw1=np.zeros_like(w1)
+    dw2=np.zeros_like(w2)
+    db1=np.zeros_like(b1)
+    db2=np.zeros_like(b2)
+    dh=np.zeros((N,H))
+    for i in range(epoch):
+        #SGD
+        idx = np.random.choice(len(x), size=batchsize, replace=False)
+        data_batch = x[idx]
+        y = Y[idx]
+        #forward
+        h=ReLU(data_batch.dot(w1)+b1)
+        y_pred=h.dot(w2)+b2
+        loss[i]=lossfun(y,y_pred,w1,w2,b1,b2,reg)
+        #backword
+        (dy_pred,deltaw1,deltaw2,deltab1,deltab2)=lossgrad(y,y_pred,w1,w2,b1,b2,reg)
+        dw2=h.T.dot(dy_pred)+deltaw2
+        db2=dy_pred+deltab2
+        dh=dy_pred.dot(w2.T)
+        dw1=data_batch.T.dot(np.multiply(ReLUgrad(data_batch.dot(w1)+b1), dh))+deltaw1
+        db1=ReLUgrad(data_batch.dot(w1)+b1)+deltab1
+        # update the parameters
+        w1=w1-lr*dw1
+        w2=w2-lr*dw2
+        b1=b1-lr*db1
+        b2=b2-lr*db2
+        lr*=1-i/epoch#学习率下降策略
+        y_labelpred=label(y_pred)
+        ylabel=label(y)
+        ac[i]=np.mean(y_labelpred==ylabel)
+    return w1,w2,b1,b2
+
+
+def predict(testset,Y,w1,w2,b1,b2):
+    idx = np.random.choice(len(testset), size=batchsize, replace=False)
+    test= testset[idx]
+    y = Y[idx]
+    h=ReLU(test.dot(w1)+b1)
+    y_pred=h.dot(w2)+b2
+    y_labelpred=label(y_pred)
+    acurracy=np.mean(y_labelpred==y)
+    return y,y_labelpred,acurracy
+
+
+# import the data
+(X_train, y_train), (X_test, y_test) = mnist.load_data()
+# Preprocess data
+X_train_flat = X_train.reshape(X_train.shape[0], -1) / 255.0#将测试集数据转为二维并进行归一化
+Y_train_flat = y_train.reshape(y_train.shape[0], -1) / 255.0
+X_test_flat = X_test.reshape(X_test.shape[0], -1) / 255.0
+y_one_hot = np.zeros((y_train.shape[0],10))#处理y便于训练时求loss
+y_one_hot[np.arange(y_train.shape[0]), y_train] = 1
+#choose parameters
+hiddens=[10,30,40]
+regs=[5e-2,1e-2,1e-4]
+lrs=[1e-3,1e-1,1e-2]
+losses=[100 for i in range(epoch)]
+j=1
+idx0 = np.random.choice(len(X_train_flat), size=batchsize, replace=False)
+data_batch0 = X_train_flat[idx0]
+y0 = y_one_hot[idx0]
+Din0 = data_batch0.shape[1]
+N0=data_batch0.shape[0]
+Dout0 = 10
+for H in hiddens:
+    w10=1e-2*np.random.randn(Din0,H)
+    w20=1e-2*np.random.randn(H,Dout0)
+    b10=1e-2*np.random.randn(N0,H)
+    b20=1e-2*np.random.randn(N0,Dout0)
+    for reg in regs:
+        for lr in lrs:
+            #forward
+            h0=ReLU(data_batch0.dot(w10)+b10)
+            y_pred0=h0.dot(w20)+b20
+            losses[j]=lossfun(y0,y_pred0,w10,w20,b10,b20,reg)
+            if losses[j]<losses[j-1]:
+                lrmin=lr
+                regmin=reg
+                Hmin=H
+            j+=1
+print(Hmin,regmin,lrmin)
+#main
+ac=[0 for i in range(epoch)]
+loss=[0 for i in range(epoch)]
+
+(w1,w2,b1,b2)=training(X_train_flat,y_one_hot,Hmin,regmin,lrmin,lossfun,ac,loss)#train with best para
+(y,y_pred,acurracy)=predict(X_test_flat,y_test,w1,w2,b1,b2)#predict
+
+
+
+print(ac,acurracy)
+
+#可视化
+plt.plot(range(100),loss)
+plt.xlabel("epoch")
+plt.ylabel("train loss")
+plt.savefig("loss.png")
+plt.close()
+
+plt.plot(range(100),ac)
+plt.xlabel("epoch")
+plt.ylabel("train accuracy")
+plt.savefig("accuracy.png")
+plt.close()
+
+plt.hist(w1, bins=100)
+plt.title("layer1 weights")
+plt.xlabel("value")
+plt.ylabel("frequency")
+plt.savefig("layer1_weights.png")
+plt.close()
+
+plt.hist(w2, bins=30)
+plt.title("layer2 weights")
+plt.xlabel("value")
+plt.ylabel("frequency")
+plt.savefig("layer2_weights.png")
+plt.close()
+
+plt.hist(b1, bins=10)
+plt.title("layer1 biases")
+plt.xlabel("value")
+plt.ylabel("frequency")
+plt.savefig("layer1_biases.png")
+plt.close()
+
+plt.hist(b2, bins=10)
+plt.title("layer2 biases")
+plt.xlabel("value")
+plt.ylabel("frequency")
+plt.savefig("layer2_biases.png")
+plt.close()
+
+
